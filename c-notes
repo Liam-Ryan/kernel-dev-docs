@@ -1,0 +1,23 @@
+--Static--
+
+Variables
+- Remain in memory while running 
+  Calling the following function twice returns in 1 then 2
+	int function(void) 
+	{
+		static int i = 0; 
+		i++; 
+		return i;
+	}  
+  i is not re-initialized since it is static
+- Are allocated in the data segment ( on the heap ) rather than stack
+- Are initialised as 0, not garbage, if not specifically initialised
+- Can only be initialised using constants
+	const int x = 10; //this is fine
+	const int x = do_a_thing(); // compiler error
+- static global functions or variables restrict access to the current file
+
+Functions
+- global by default but static restricts access to the file it's declared in
+
+--Memory Layout of a C program--

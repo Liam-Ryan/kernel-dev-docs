@@ -1,0 +1,41 @@
+Headers
+- Linux headers are in the /include directory
+- Arch specific headers are in arch/<arch>/asm/include
+- Arch specific headers will be included as #include <asm/header_name.h>
+
+Libraries
+- Can't use external libraries in the kernel
+- Many C libraries have kernel implementations in lib/
+- To include these files you #include <linux/lib_name.h>, not <lib/lib_name.h> 
+
+Processes (called tasks internally, process == task)
+- Linux treats processes & threads the same way
+- Each process gets a virtual memory and virtual processor 
+- These make the process think it has 100% access to memory and cpu
+- Threads share the virtual memory for a process
+- Each thread receives its own virtual processor 
+- Every process is created by a parent calling fork()
+- The fork() process returns twice, once for parent and one for child
+- fork is in kernel/fork.c
+- Immediately after fork()ing you usually want to exec() to load a new program
+- exec() creates a new address space to load the program into
+- In modern linux fork() is implemented via the clone() system call
+- Processes exit(terminate) via exit() call, freeing all resources (exit.c)
+- A parent can check on a terminated child using wait4() system call
+- wait4() lets the parent wait for the termination of a child process
+- exit()ing tasks are in a zombie state until parent calls wait() or waitpid()
+- task_struct is defined in include/kernel/sched.h line 592 as of 5.6.0 rc6
+- thread_info is stored as the first element of a task_struct if config set
+- All processes are children of init (pid 1) and every process has 1 parent
+- init's process descriptor is set to init_task so you can check if task == &init_task
+- kernel threads are all forked from kthreadd kernel process kthread.h
+- ppid = parent process id
+
+
+
+
+Useful notes
+
+randomized_struct_fields_start and randomized_struct_fields_end is a gcc plugin written specifically for the kernel https://code.woboq.org/linux/linux/scripts/gcc-plugins/randomize_layout_plugin.c.html
+
+

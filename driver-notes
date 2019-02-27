@@ -1,0 +1,204 @@
+Modules
+- Modules can depend on one another, this means they require a symbol
+- Symbols are exported from modules using the EXPORT_SYMBOL macro
+- depmod is a kernel build tool that generates dependency files
+- depmod generates modules.dep and modules.dep.bin
+- depmod also generates modules.alias in /lib/modules/<kernversion>/
+- modules.alias maps devices(vendor & product ids) to driver modules
+
+Loading
+- insmod /path/to/mydriver.ko is preferred to install modules in dev
+- modprobe mydriver is used in production, it will also load dependencies
+- module_init(<init_function_name) declares the entry point called when loading
+
+AutoLoading
+- udev or mdev will register with kernel for new device notifications
+- Both use modprobe & modules.alias to load new modules when notified
+
+Loading on boot
+- /etc/modules-load.d/<anyname>.conf will load 1 module per line on boot
+- /etc/modules-load.d/modules.conf is normally already present
+
+Unloading
+- rmmod is usually used to unload a module, it takes the module name
+- insmod can also be used but isn't recommended
+- unloading can be disabled via kernel CONFIG_MODULE_UNLOAD flag
+- the kernel prevents unloading modules if it thinks they are still used
+- to force unloading modules need to set MODULE_FORCE_UNLOAD=y during build
+- rmmod -f mymodule will then unload any module
+- modprobe -r will remove modules and unused dependencies
+- lsmod will list loaded modules
+- module_exit(<exit_function_name>) declares the exit point called when unloading
+
+Module parameters
+- modules can accept cmd line arguments to avoid needing to always recompile
+- you need to declare the variables and use the module_param() macro on each
+- module_param() is defined in include/linux/moduleparam.h
+- module_param(name, type, perm)
+	name is the variable name
+	type can be bool, charp(char pointer), byte, short, ushort, int, uint, long, ulong
+	perm is /sys/module/<module>/parameters/<param> file permissions. Some are S_IWUSR, S_IXUSR
+		S_I is a prefix
+		Read, Write, eXecute
+		USR=user, GRP=group, UGO=user,group,others
+		you can use | with other properties to get fine-grained permissions
+- when using module params you should use MODULE_PARM_DESC to describe them
+	#include <linux/moduleparams.h>
+	...
+	static char *mystr="hello";
+	static int myint=1;
+	static int myarr[3] = {0, 1, 2};
+
+	module_param(myint, int, S_IRUGO);
+	module_param(mystr, charp, S_IRUGO);
+	module_param_array(myarr, int, NULL, S_IWUSR|S_IRUSR; 
+
+	MODULE_PARM_DESC(myint, "this is my int variable");
+	MODULE_PARM_DESC(mystr, "this is my string variable");
+	MODULE_PARM_DESC(myarr, "this is my int array variable");
+
+	static int foo()
+	{
+		pr_info("mystring is a string: %s\n", mystr);
+		pr_info("arr elements %d\t%d\t%d\n", myarr[0], myarr[1], myarr[2]);
+	}
+	/* to load above use 'insmod hellomodule-params.ko mystring="test" myint=15 myArray=1,2,3 */
+
+Making modules
+- In nearly every kernel makefile you will see at least one instance of an ob <X> variable
+- x is usually y, m, blank or n. eg. obj-y += mymodule.o
+- if <x> is m then it will be built as a module
+- if <x> is y then it will be built as part of the kernel (built in module)
+- if <x> is n then it will not be built at all
+- therefore a common pattern is obj-$(CONFIG_XXX) which loads the value from the CONFIG_XXX option
+- eg obj-$(CONFIG_MYMODULE) += mymodule.o  then in kernel config you have CONFIG_MYMODULE=(m|y|n) 
+- there's also obj-<X> += somedir/ which means use the makefile from that directory
+
+Makefile for samples as modules
+	#build module from hellomodule.c
+	obj-m := hellomodule.o
+	
+	#point to prebuilt kernel source, can also point to kernel source dir(absolute path)
+	KERNELDIR ?= /lib/modules/$(shell uname -r)/build
+
+	#execute modules target for all or default
+	all default: modules
+	#execute modules_install for make install
+	install: modules_install
+
+	#list target valid in the makefile
+	modules modules_install help clean:
+ 
+	#-C means change into KERNELDIR before reading the makefiles 
+	#M is a variable used by kernel makefile to locate the directory of the external module to build(this is where the .c files are)
+	#$@ is the argument to make so make modules would result in the below with $@ replaced with modules
+	$(MAKE) -C $(KERNELDIR) M=$(shell pwd) $@
+
+Building in the kernel 
+- Pick a directory to place the driver in in the kernel 
+- Add the following to the Kconfig of the directory 
+	config MY_CUSTOM_DRIVER
+	tristate "My first custom driver"
+	default m
+	help
+		Say Y here if you want to load my_custom_driver.
+		it's really kewl
+- Add the following to the makefile in the same directory
+	obj-$(CONFIG_MY_CUSTOM_DRIVER) += hellomodule.o
+
+- To build as a module set CONFIG_MY_CUSTOM_DRIVER in the arch/x86/configs directory (or .config) to m, y for built-in
+- It will also appear in the config menus for the kernel (yay!!!)
+- once configured you can build with make and build modules with make modules. 
+- modules included in the source tree are in /lib/modules/$(KERNELRELEASE)/kernel
+- install modules with make modules_install
+	make (from source dir out of tree)
+	sudo insmod hellomodule.ko
+	sudo rmmod hellomodule
+	dmesg
+- to cross compile use 'make ARCH=arm CROSS_COMPILE=arm-none-linux-gnueabihf-'
+
+init.h
+- defines __init and __exit macros. These can be declared as function attributes
+- if a driver is compiled into the kernel the __init code is freed after loading
+- the macros wrap the C compiler attribute for symbol placement instruct the code to place
+	__init code in .init.text section of the program
+	__exit code in .exit.text section of the program
+
+
+- modules have a .modinfo section which stores the info for modinfo command
+- there are shortcut macros like MODULE_AUTHOR  but they all use MODULE_INFO(field_name, "value");
+- all modules should have license, author, param description, module version and description
+- modules need to be GPL compatible to get full access to exported symbols
+
+Error handling
+- Errors can be found in include/uapi/asm-generic/ errno-base.h and errno.h
+- To return an error you return -<errorcode> eg. return -EACCES (kernel errors are negative)
+- in user-space a returned error from a system call will be in errno and can be interpreted using strerror(errno)
+	#include <errno.h>
+	...
+	if(write(fd, buf, 1) < 0) {
+		printf("something has gone wrong! %s\n", strerror(errno));
+	{
+	...
+
+- if you encounter an error you need to undo everything which is usually done with goto
+	ptr = kmalloc(sizeof (device_t));
+	if(!ptr) {
+		ret = -ENOMEM;
+		goto err_alloc;
+	}
+	dev = init(&ptr);
+	
+	if(dev) {
+		ret = -EIO;
+		goto err_init;
+	}
+	return 0;
+
+	err_init: 
+		free(ptr);
+	err_alloc: 
+		return ret;
+- note goto should only be used to move forward in functions
+ 
+Null pointers
+- there are 3 functions to deal with cases where you might receive a null pointer 
+- void *ERR_PTR(long error) which returns the error value as a pointer
+- long IS_ERR(const void *ptr) which checks if the returned value is an error or not
+- long PTR_ERR(const void *ptr) which returns the actual error code
+	static struct iio_dev *indiodev_setup() {
+		...
+		struct iio_dev *indio_dev;
+		indio_dev = devm_iio_device_alloc(&data->client->dev, sizeof(data));
+		if (!indio_dev)
+			return ERR_PTR(-ENOMEM);
+		...
+		return indio_dev;
+	}
+
+	static int foo_probe(...){
+		struct iio_dev *my_indio_dev = indiodev_setup();
+		if (IS_ERR(my_indio_dev))
+			return PTR_ERR(data->acc_indio_dev);
+	}
+
+- if the name of a function is an action or imperative command it should return an erro code integer
+- if the name is a predicate it should return 1 for true or 0 for false
+
+Printing
+- printk levels are defined in include/linux/kern_levels.h
+- to use do printk(KERN_LEVEL "This is an error\n");
+- if you omit the KERN_LEVEL it will be printed at CONFIG_DEFAULT_MESSAGE_LOGLEVEL
+- can also use macros - pr_emerg, pr_alert, pr_crit, pr_err, pr_warning, pr_notice, pr_info, pr_debug
+- whenever printk is called the message level is compared against the current console level
+- if the message level is higher (actually lower as 0 is critical, 8 is debug) then it is printed
+- printk never blocks and is safe to be called from atomic contexts. If it can't lock the console it prints to buffer so statements may not always be exactly where they are invoked from
+
+Debugging
+- Documentation/dynamic-debug-howto.txt
+
+Troubleshooting
+- Drivers in the char directory seem to need to be signed, use block for testing
+- Always end printk statements with \n or things will go badly
+- Module names are the file names 
+- Make sure you have $(CONFIG_) at the start of makefile declarations
