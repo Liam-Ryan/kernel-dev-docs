@@ -122,7 +122,7 @@ Kernel helpers
 - if something called wake_up or wake_up_interruptible and condition is still false nothing happens
 - without wake_up or wake_up_interruptible processes will never wake up. 
 ```c
-	/* Using wait queues /*
+	/* Using wait queues */
 	#include <linux/module.h>
 	#include <linux/init.h>
 	#include <linux/sched.h>
@@ -134,10 +134,10 @@ Kernel helpers
 	static int wake_condition = 0;
 
 	static struct work_struct wrk;
-	
+
 	static void work_handler(struct work_struct *work)
 	{
-		printk("Waitqueue module handler %s\n, __FUNCTION__);
+		printk("Waitqueue module handler %s\n", __FUNCTION__);
 		msleep(5000);
 		printk("Wake up the sleeping module \n");
 		wake_condition = 1;
@@ -152,7 +152,7 @@ Kernel helpers
 		schedule_work(&wrk);
 
 		printk("Sleeping %s\n", __FUNCTION__);
-		wait_event_interruptible(my_workq, wake_condition !=0);
+		wait_event_interruptible(my_waitq, wake_condition !=0);
 
 		printk("woken up by the work job\n");
 		return 0;
@@ -160,7 +160,7 @@ Kernel helpers
 
 	static void __exit exitfunction(void)
 	{
-		printk("Wait queue module unloading");
+		printk("Wait queue module unloading\n");
 	}
 
 	module_init(initfunction);
