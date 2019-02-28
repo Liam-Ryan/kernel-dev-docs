@@ -31,6 +31,145 @@ Processes (called tasks internally, process == task)
 - kernel threads are all forked from kthreadd kernel process kthread.h
 - ppid = parent process id
 
+Kernel helpers
+#### container_of
+- container_of macro is in include/linux/kernel.h
+- container_of returns a pointer to the containing struct of a given member
+	struct person {
+		int age;
+		int salary;
+		char *name;
+	};
+	struct person somebody;
+	...
+	int *sal_ptr = &somebody.salary;
+	...
+	struct person *another;
+	another = container_of(sal_ptr, struct person, salary);
+- container_of cannot be used for members which are also pointers or arrays
+
+### lists
+- kernel lists are in linux/list.h
+- kernel lists are circular doubly-linked lists
+- the main list struct is list_head
+```c
+	struct list_head {
+		struct list_head *next, *prev;	
+	}
+```
+- the elements of the list need to have a struct list_head member
+```c	
+	struct person {
+		int age;
+		char *name;
+		struct list_head list;
+	}
+```
+- then you need to create a struct list_head variable that always points to the head
+```c
+	static LIST_HEAD(personlist);
+	
+	#include <linux/list.h>
+	
+	struct person *liam = kmalloc(sizeof(*person), GFP_KERNEL);
+	struct person *kelly = kmalloc(sizeof(*person), GFP_KERNEL);
+
+	/* Initialize the list in each member. Note init needs address of the list struct*/
+	INIT_LIST_HEAD(&liam->list);
+	INIT_LIST_HEAD(&kelly->list);
+	
+	liam->age = 100;
+	liam->name = "Liam";
+	kelly->age = 99;
+	kelly->name = "Kelly";
+	list_add(&liam->list, &personlist);
+	list_add(&kelly->list, &personlist);
+```
+- Note that you need to INIT_LIST_HEAD for the list in each member as above
+- You can also use LIST_HEAD(list_name) if required as it creates the node
+- list_add_tail can be used to add to the end of the list
+- list_del deletes a node from the list but you still need to call kfree to free the memory for it
+- list_for_each_entry(pos, head, member) traverses lists
+	pos is a ponter of type of the list members and holds the current member
+	head is the lists head node
+	member is the name of the field in our struct which contains list_head
+- there's also list_for_each_entry_safe(pos, n, head, member)
+- internally the list_for_each_entry uses container_of the member to find struct pointers
+
+### kernel sleeping
+- A sleeping process is never scheduled so you need to wake yourself
+- wait queues are used to process blocked i/o and wait for conditions
+- wait queues are defined in include/linux/wait.h
+- static = `DECLARE_WAIT_QUEUE_HEAD(name)`
+- dynamic = 
+	```c
+		wait_queue_head_t name;
+		init_waitqueue_head(&name);
+	```
+- block the current task if condition is false `int wait_event_interruptible(wait_queue_head_t q, CONDITION);`
+- wake the process in the queu if the condition becomes true `void wake_up_interruptible(wait_queue_head *q)`
+- wait_event_interruptible does not poll all the time it just evaluates when it's called. 
+- if condition is false it goes into TASK_INTERRUPTIBLE state and removed from the run queue
+- condition is only rechecked each time you call wake_up_interruptible in the wait queue
+- if condition is true a process will be awakened and set to TASK_RUNNING
+- processes are woken in the order they were put to sleep. Use `wake_up_interruptible_all` to wake all processes
+
+- the main functions are actually wait_event, wake_up and wake_up_all which are used with processes in an exclusive wait
+  since those processes can't be interrupted by the signal. these should only be used for critical tasks. 
+- interruptible functions are optional but recommended and since they can be interrupted you need to check return value
+- nonzero return for interruptible functions means sleep was interrupted by some kind of signal and the driver should return ERESTARTSYS
+
+- if something called wake_up or wake_up_interruptible and condition is still false nothing happens
+- without wake_up or wake_up_interruptible processes will never wake up. 
+```c
+	/* Using wait queues /*
+	#include <linux/module.h>
+	#include <linux/init.h>
+	#include <linux/sched.h>
+	#include <linux/time.h>
+	#include <linux/delay.h>
+	#include <linux/workqueue.h>
+
+	static DECLARE_WAIT_QUEUE_HEAD(my_waitq);
+	static int wake_condition = 0;
+
+	static struct work_struct wrk;
+	
+	static void work_handler(struct work_struct *work)
+	{
+		printk("Waitqueue module handler %s\n, __FUNCTION__);
+		msleep(5000);
+		printk("Wake up the sleeping module \n");
+		wake_condition = 1;
+		wake_up_interruptible(&my_waitq);
+	}
+
+	static int __init initfunction(void)
+	{
+		printk("Using wait queues\n");
+
+		INIT_WORK(&wrk, work_handler);
+		schedule_work(&wrk);
+
+		printk("Sleeping %s\n", __FUNCTION__);
+		wait_event_interruptible(my_workq, wake_condition !=0);
+
+		printk("woken up by the work job\n");
+		return 0;
+	}
+
+	static void __exit exitfunction(void)
+	{
+		printk("Wait queue module unloading");
+	}
+
+	module_init(initfunction);
+	module_exit(exitfunction);
+	MODULE_AUTHOR("Liam Ryan <liamryandev@gmail.com>");
+	MODULE_LICENSE("GPL");
+	
+```
+
 
 
 
