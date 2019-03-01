@@ -56,3 +56,100 @@ to see if the timer is running or not use
 int timer_pending(const struct timer_list *timer);
 ```
 It tells you if there are any fired timer callbacks pending
+
+#### Timer example module
+```c
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/timer.h>
+
+static struct timer_list timerlst;
+
+static void timer_callback(struct timer_list *list)
+{
+	printk("%s called (%ld).\n", __FUNCTION__, jiffies);
+}
+
+static int __init onload(void)
+{
+	int res;
+	printk("Timer module loaded\n");
+
+	/*Set up timer, see commit e99e88a9d2b067465adaa9c111ada99a041bef9a for api change */
+	timer_setup(&timerlst, timer_callback, 0);
+	printk("Setup timer to fire in 500ms (%ld)\n", jiffies);
+
+	/*mod_timer updates the expires for the timer_list*/
+        res = mod_timer(&timerlst, jiffies + msecs_to_jiffies(500));
+	if (res) 
+		printk("Update timer failed\n");
+	return 0;
+}
+
+static void __exit onunload(void)
+{
+	int res;
+        res = del_timer(&timerlst);
+	if (res)
+		printk("Timer is still in use...\n");
+	printk("Timer module unloaded\n");
+}
+
+module_init(onload);
+module_exit(onunload);
+MODULE_AUTHOR("Liam Ryan <liamryandev@gmail.com>");
+MODULE_LICENSE("GPL");
+```
+
+### High resolution timers (HRTs)
+For real time applications you should use HRTs
+HRTs must be enabled via Kconfig `CONFIG_HIGH_RES_TIMERS`
+HRTs have a resolution of nano/microseconds depending on arch where standard timers have a resolution of milliseconds
+HRT implementation is based on ktime rather than jiffies
+HRTs need architecture-dependent code for your hardware in order to be used
+
+#### HRT API
+HRTs use a hrtimer struct which is in `<linux/hrtimer.h>`
+```c
+struct hrtimer {
+	struct timerqueue_node node;
+	ktime_t _softexpires;
+	enum hrtimer_restart (*function)(struct hrtimer *);
+	struct hrtimer_clock_base *base;
+	u8 state;
+	u8 is_rel
+};
+```
+
+To initialise the hrtimer you need to set up a ktime ( ktime represents time duration)
+```c
+void hrtimer_init(struct hrtimer *time, clockid_t clock_type, enum hrtimer_mode mode);
+```
+
+After initialising you need to start by calling `hrtimer_start`
+```c
+int hrtimer_start(struct hrtimer *timer, ktime_t time, const enum hrtimer_mode mode);
+```
+For both init and start the mode is the expiry mode ( `HRTIMER_MODE_ABS` for absolute, `HRTIME_MODE_REL` for a value relative to nowl
+
+Cancelling a hrtimer 
+```c
+int hrtimer_cancel(struct hrtimer *timer);
+int hrtimer_try_to_cancel(struct hrtimer *timer);
+```
+`hrtimer_cancel` will wait until the callback finishes, try to cancel will return -1 if timer is active or the callback is running
+
+You can check if a hrtimer callback is running with 
+```c
+int hrtimer_callback_running(struct hrtimer *timer);
+```
+
+You need to have the callback return `HRTIMER_NORESTART` to prevent the timer from automatically restarting
+
+You can check if HRTs are available on a system by 
+* checking the kernel config file for something like `CONFIG_HIGH_RES_TIMERS=y: zcat /proc/configs.gz | grep CONFIG_HIGH_RES_TIMERS`
+* `cat /proc/timer_list | grep resolution` shows 1nsecs and `event_hander` shows `hrtimer_interrupts`
+* checking the `clock.getres` system call
+* within kernel code using `#ifdef CONFIG_HIGH_RES_TIMERS`
+
+
