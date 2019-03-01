@@ -34,7 +34,7 @@ struct timer_list {
 
 To set up the timer you can use setup\_timer or init\_timer
 ```c
-void setup_timer(struct timer_list *timer, void (*function)(unsigned long), unsigned long data);
+void timer_setup(struct timer_list *timer, void (*function)(struct timer_list *timer), unsigned long data);
 
 void init_timer(struct timer_list *timer);
 ```
