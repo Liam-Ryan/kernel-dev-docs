@@ -1,5 +1,5 @@
-
-### Types of time
+##### Also see Documentation/timers/timers-howto.txt in kernel src
+## Types of time
 
 Kernel has two types of time - real time and relative time. 
 Real(absolute) time uses the real time clock.
@@ -152,4 +152,30 @@ You can check if HRTs are available on a system by
 * checking the `clock.getres` system call
 * within kernel code using `#ifdef CONFIG_HIGH_RES_TIMERS`
 
+## Tickless kernel
+Normally the kernel is interrupted HZ times per second to reschedule tasks, even if it's idle. This increases power consumption
+A tickless kernel disables these ticks and instead schedules ticks based on the next action
+When the run queue is empty in a tickless kernel the scheduler switches to idle thread and disables periodic ticks until next timer expires
+The kernel maintains a list of task timeouts and if the next tick is further away than the lowest timeout for tasks the kernel programs the timer with the timeout value
+After the timer expires the kernel reverts to periodic ticks and invokes the scheduler, then when the run queue is empty again we repeat this process
 
+## Delays and sleeps
+There are 2 types of delays, one for atomic and one for nonatomic code. The delay header is `#include <linux/delay.h>`
+
+### Atomic
+Atomic tasks can't sleep and can't be scheduled ( eg ISR (interrupt handlers / Interrput Service Routines)
+busy-wait loops are used to delay atomic code and are exposed via the `Xdelay` functions in the kernel
+the code spends a set amount of time (based on jiffies) in the loop before returning for execution again
+```c
+ndelay(unsigned long nsecs)
+udelay(unsigned long usecs)
+mdelay(unsigned long msecs)
+```
+udelay should always be used since ndelay() depends on how accurate the hardware timer is and mdelay is discouraged as it's not very accurate in kernel timelines
+timer handlers (callback functions) are atomic and can't sleep which *includes things resulting in sleep like memory allocation and locking a mutex*
+
+### Nonatomic
+Nonatomic code can use the sleep family of functions, which function you use depends on how long to sleep
+< ~10 microseconds `udelay(unsigned long usecs)` - note this is the same as used for atomic context and uses a busy-wait loop
+10 microseconds to 20 milliseconds `usleep_range(unsigned long min, unsigned long max)` - uses hrtimers so needs support for real time
+10+ milliseconds `msleep(unsigned long msecs)` - jiffies and legacy timers, use for larger sleeps
