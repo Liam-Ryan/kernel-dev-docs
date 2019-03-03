@@ -300,3 +300,6 @@ module_exit(onunload);
 MODULE_AUTHOR("Liam Ryan <liamryandev@gmail.com>");
 MODULE_LICENSE("GPL");
 ```
+
+#### Differences in functions
+For most functions if you're using the global queue you use schedule and if you're using a dedicated queue you use queue. eg `schedule_work(work)` vs `queue_work(work_queue, work) `
