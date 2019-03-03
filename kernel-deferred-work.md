@@ -197,3 +197,106 @@ MODULE_AUTHOR("Liam Ryan <liamryandev@gmail.com>");
 MODULE_LICENSE("GPL");
 ```
 
+#### Dedicated work queue
+For dedicated queues the queue is an instance of `struct workqueue_struct`
+You need to do do 4 things before scheduling your work in your own kernel thread
+* Declare/init `struct workqueue_struct`
+```c
+struct workqueue_struct *myqueue;
+```
+* Create work function
+```c
+void dowork(void *data)
+```
+* Create `struct work_struct`
+```c
+struct work_struct *work;
+```
+* embed work function in work struct
+```c
+myqueue = create_singlethread_workqueue("myworkqueue");
+INIT_WORK(&work, dowork, data_pointer); 
+```
+You can also use `create_workqueue` which creates a thread on each processor
+
+To schedule work for dedicated queues
+```c
+queue_work(myqueue, &thework);
+queue_delayed_work(myqueue, &thework, delayinjiffies);
+/* can use msecs_to_jiffies() macro */
+```
+
+To wait for all pending work in a queue
+```c
+void flush_workqueue(struct workqueue_struct *wq);
+```
+`flush_workqueue` sleeps until all queued work has finished. New incoming work doesn't affect the sleep
+
+Cleaning up - the functions below will cancel the work if it's not running or block until it's complete. It will be cancelled even if it requeues itself. You need to make sure the queue can't be destroyed before the handler returns
+```c
+int cancel_work_sync(struct work_struct *work);
+int cancel_delayed_work_sync(struct delayed_work *dwork);
+```
+
+Since kernel 4.8 you can use `cancel_work` or `cancel_delayed_work` which are non-blocking but you need to check that they return true and make sure the work doesn't requeue itself. You also need to explicitly flush the queue after
+```c
+if (!cancel_delayed_work(&thework)) {
+	flush_workqueue(myqueue);
+	destroy_workqueue(myqueue);
+}
+```
+if you need to delay the work you should use one of the following functions
+```c
+INIT_DELAYED_WORK (work, func);
+INIT_DELAYED_WORK_DEFERRABLE(work, func);
+```
+Then to queue the work 
+```c
+int queue_delayed_work(struct workqueue_struct *wq, struct delayed_work *dwork, unsigned long delay);
+int queue_delayed_work_on(int cpu, struct workqueue_struct *wq, struct delayed_work *dwork, unsigned long delay);
+```
+#### dedicated work queue example
+```c
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/workqueue.h>
+#include <linux/slab.h>
+
+struct workqueue_struct *wq;
+
+struct work_data {
+	struct work_struct my_work;
+	int data;
+};
+
+static void do_work(struct work_struct *work)
+{
+	struct work_data *data = container_of(work, struct work_data, my_work);
+	printk("Work queue module handler %s, data is %d\n", __FUNCTION__, data->data);
+	kfree(data);
+}
+
+static int __init onload(void)
+{
+	struct work_data *data;
+	printk("Work queue module init %s %d\n", __FUNCTION__, __LINE__);
+	wq = create_singlethread_workqueue("my single thread workqueue");
+	data = kmalloc(sizeof(struct work_data), GFP_KERNEL);
+	data->data = 42;
+	INIT_WORK(&data->my_work, do_work);
+	queue_work(wq, &data->my_work);
+	return 0;
+}
+
+static void __exit onunload(void)
+{
+	flush_workqueue(wq);
+	destroy_workqueue(wq);
+	printk("Work queue module exit %s %d\n", __FUNCTION__, __LINE__);
+}
+
+module_init(onload);
+module_exit(onunload);
+MODULE_AUTHOR("Liam Ryan <liamryandev@gmail.com>");
+MODULE_LICENSE("GPL");
+```
