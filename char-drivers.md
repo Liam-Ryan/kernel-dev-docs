@@ -46,3 +46,16 @@ MINOR(dev_t dev); //Extract the minor version
 /* left-shift the major by the minor bits which leaves 0 in the lower 20 bits then or with the minor which will have 0 in the 12 most significant bits */
 #define MKDEV(ma,mi)	((ma) << MINORBITS) | (mi))
 ```
+
+### Device number allocation
+If absolutely required you can try to assign to a major/minor yourself using the following but it's almost never correct to use 
+`int register_chrdev_region(dev_t first, unsigned int count, char *name)`
+first should be the major number you require and the first minor number, count is the total number of minor numbers.
+
+The recommended way is to request a major from the kernel using alloc
+`int alloc_chrdev_region(dev_t *dev, unsigned int firstminor, unsigned int count, char *name)`
+Here dev is an output parameter which is the first number assigned by the kernel.
+firstminor is where you want your minor numbering scheme to begin
+
+In normal driver development you don't need to call alloc directly, there's frameworks for the various driver types that handle it
+
