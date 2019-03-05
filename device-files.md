@@ -22,6 +22,25 @@ struct file_operations {
 ```
 Every callback is linked to a system call and all are optional. If userspace calls a system call which correspondes to an unimplemented callback the kernel returns an error code that varies based on the system call. 
 
-Files in the kernel are actually represented by struct inode in `include/linux/fs.h` (not struct file!!!)
+Files in the kernel are actually represented by struct inode in `include/linux/fs.h` (not struct file!!!). There are 3 different struct pointers contained in the inode which will be set depending on the device type.
+```c
+struct inode {
+	...
+	struct pipe_inode_info *i_pipe;	//used if this is a pipe
+	struct block_device *i_bdev; //used if this is a block
+	structcdev *i_cdev; //used if this is a character device
+}
+```
+`struct inode` is a filesystem data structure, `struct file` relies on the `struct inode` and specifically represents an open file in the kernel
 
+```c
+struct file {
+	...
+	struct path f_path; //file path
+	struct inode *f_inode;
+	const struct file_operations *f_op;
+	loff_t f_pos; //position of the cursor in the file
+	void *private_data; //driver-specific data
+}
+```
 
