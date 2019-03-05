@@ -59,3 +59,43 @@ firstminor is where you want your minor numbering scheme to begin
 
 In normal driver development you don't need to call alloc directly, there's frameworks for the various driver types that handle it
 
+### Per device data
+Each `open()` on a character driver receives a `struct inode` parameter which is the kernel representation of that driver file. The inode has a `struct cdev i_cdev` field which points to the cdev we init via `cdev_init`. By embedding the cdev in our device data we can get a pointer to the data using `container_of` on that cdev.
+```c
+struct myfirstchardev {
+	struct cdev firstdriver_cdev;
+	unsigned char *firstchardevdata;
+	int firstchardatasize;
+	...
+}
+
+static unsigned int major = 0;
+static size_t data_size = 64;
+static struct class *myfirstchardev_class = NULL;
+
+static int myfirstchardev_open(struct inode *inode, struct file *filp)
+{
+	unsigned int maj = imajor(inode);
+	unsigned int min = iminor(inode);
+
+	struct myfirstchardev *myfichdev = NULL;
+	myfichdev = container_of(inode->i_cdev, struct myfirstchardev, firstdriver_cdev);
+	myfichdev->firstchardatasize = data_size;
+	if(maj != major || min < 0) {
+		pr_err("device not found\n");
+		return -ENODEV;
+	}
+
+	/* prepare the buffer if the device is opened for the first time */ 
+	if (myfichdev->firstchardevdata == NULL) { 
+		myfichdev->firstchardevdata = kzalloc(myfichdev->firstchardatasize, GFP_KERNEL); 
+		if (myfichdev->firstchardevdata == NULL) { 
+			pr_err("Open: memory allocation failed\n"); 
+			return -ENOMEM; 
+		} 
+	} 
+	filp->private_data = myfichdev; 
+	return 0; 
+}
+
+```
