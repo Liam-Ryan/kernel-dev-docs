@@ -59,12 +59,12 @@ firstminor is where you want your minor numbering scheme to begin
 
 In normal driver development you don't need to call alloc directly, there's frameworks for the various driver types that handle it
 
-### Per device data
+### Per device data with `open()`
 Each `open()` on a character driver receives a `struct inode` parameter which is the kernel representation of that driver file. The inode has a `struct cdev i_cdev` field which points to the cdev we init via `cdev_init`. By embedding the cdev in our device data we can get a pointer to the data using `container_of` on that cdev.
 ```c
 struct myfirstchardev {
 	struct cdev firstdriver_cdev;
-	unsigned char *firstchardevdata;
+	unsigned char *data;
 	int firstchardatasize;
 	...
 }
@@ -87,9 +87,9 @@ static int myfirstchardev_open(struct inode *inode, struct file *filp)
 	}
 
 	/* prepare the buffer if the device is opened for the first time */ 
-	if (myfichdev->firstchardevdata == NULL) { 
-		myfichdev->firstchardevdata = kzalloc(myfichdev->firstchardatasize, GFP_KERNEL); 
-		if (myfichdev->firstchardevdata == NULL) { 
+	if (myfichdev->data == NULL) { 
+		myfichdev->data = kzalloc(myfichdev->firstchardatasize, GFP_KERNEL); 
+		if (myfichdev->data == NULL) { 
 			pr_err("Open: memory allocation failed\n"); 
 			return -ENOMEM; 
 		} 
@@ -99,3 +99,39 @@ static int myfirstchardev_open(struct inode *inode, struct file *filp)
 }
 
 ```
+
+### release()
+Release is where you free up any resources allocated to the driver and shut down the device if it can be shut down
+
+```c
+static int mydev_release(struct inode *inode, struct file *filp)
+{
+	struct myfirstchardev *device = NULL;
+	device = container_of(inode->i_cdev, struct my_device, firstdriver_cdev);
+
+	mutex_lock(&device_list_lock);
+	filp->private_data = NULL;
+
+	myfirstchardev->users--;
+	if (!myfirstchardev->users) {
+		kfree(mydevbuffer);
+		mydevbuffer = NULL;
+		kfree(myfirstchardev->data);
+		myfirstchardev->data = NULL;
+		...
+		
+		if (global_struct)
+			kfree(global_struct);
+	}
+	mutex_unlock(&device_list_lock);
+	return 0;
+	
+}
+```
+
+### write() 
+ssize_t (*write) (struct file *filp, const char __user *buf, size_t count, loff_t *pos)
+* return value is # of bytes written
+* *buf is the data buffer from user space
+* count is the size of the transfer
+* pos is the position in the file to start writing to
