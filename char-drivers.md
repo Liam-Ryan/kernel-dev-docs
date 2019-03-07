@@ -130,8 +130,88 @@ static int mydev_release(struct inode *inode, struct file *filp)
 ```
 
 ### write() 
-ssize_t (*write) (struct file *filp, const char __user *buf, size_t count, loff_t *pos)
+`ssize_t (*write) (struct file *filp, const char __user *buf, size_t count, loff_t *pos)`
 * return value is # of bytes written
-* *buf is the data buffer from user space
+* `*buf` is the data buffer from user space
 * count is the size of the transfer
 * pos is the position in the file to start writing to
+
+##### Best practice 
+* Make sure requests are valid - don't trust user input
+* Ensure that you have sufficient device space for any write
+* Use `copy_from_user`first to a buffer and then move data again to the device
+* Track the position in the file (pos), make sure to update `filp->f_pos`
+* When writing to the device return the number of bbytes written and return a negative error on failure
+
+### read()
+`ssize_t (*read) (struct file *filp, char __user *buf, size_t count, loff_t *pos)`
+* return value is bytes read 
+* All other variables are the same as for write with pos showing where to start the read from
+
+##### Best practice
+* Check if you're going to read beyond the end of the file and just return to the end
+* Otherwise follow the same best practices as for `write()`
+
+### llseek()
+`loff_t (*llseek) (struct file *filp, loff_t offset, int whence)`
+llseek is used to move the cursor within a file. The classic use case is floppy drives
+
+* returns the new position in the file
+* `offset` is the offset relative to whence
+* `whence` defines where to seek from
+  * `SEEK_SET` - beginning of file
+  * `SEEK_CUR` - current file position
+  * `SEEK_END` - end of file
+
+##### Best practice
+
+* Check for all 3 whence types and handle
+* make sure the new position is valid
+* Update filp `f_pos` with the new position
+* Return the new position
+
+### poll()
+`unsigned int (*poll) (struct file *, struct poll_table_struct *)`
+polling is used by user space to check if a device is available. userspace can call `poll()` or `select()`, both are serviced by poll
+
+Within the driver you need to call `void poll_wait(struct file *filp, wait_queue_head_t * wait_address, poll_table *p)`from `<linux/poll.h>`. This adds the device associated with filp to a list of devices which can wake processes sleeping in the `wait_address` based on events registered in the `poll_table` struct
+
+Usually you use a wait queue for each event type (usually reading and writing) based on the events from userspace call
+
+The return value must have POLLIN | POLLRDNORM set if there's data to read, POLLOUT | POLLWRNORM if it's writeable and 0 if there's no data and the device is not writeable
+
+If poll is not defined it is assumed the device is readable and writeable at all times
+
+##### Best practice
+
+* declare a wait queue for each event type (read, write, error) you need a passive wait for
+* Notify the wait queue when there is new data or device becomes writeable (using `wake_up_interruptible`)
+
+### ioctl()
+`long ioctl(struct file *f, unsigned int cmd, unsigned long arg)`
+
+The ioctl method is used to handle device-specific system calls like shutdown, reset, etc.
+The ioctl command needs to be identified by a unique number which is generated using one of the 4 macros 
+* `_IO(MAGIC, SEQ_NO)` - doesn't need data transfer
+* `_IOW(MAGIC, SEQ_NO, TYPE)` - needs write params(`copy_from_user` or `get_user`
+* `_IOR(MAGIC, SEQ_NO, TYPE)` - needs read commands(`copy_to_user` or `put_user`
+* `_IORW(MAGIC, SEQ_NO, TYPE)` - needs both
+
+`MAGIC` is an 8 bit number (0-255)
+`SEQ_NO` is a command id, also 8 bits
+`TYPE` is an optional data type that will tell the kernel about the size to be copied
+
+##### Best practice
+* Generate the ioctl number in a dedicated header file since userspace will need the header to call the ioctl 
+* multiple arguments should be gathered in a struct and the pointer passed to ioctl as the ulong
+
+###File operations structure
+Once you have defined your function you should use designated initializers to intialize the fops struct 
+```c
+static const struct file_operations my_fops = {
+	.owner =	THIS_MODULE,
+	.read =		my_read,
+	.write =	my_write, 
+	...
+};
+```
